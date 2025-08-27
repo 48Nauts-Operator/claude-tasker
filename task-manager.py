@@ -12,6 +12,17 @@ from pathlib import Path
 from datetime import datetime
 import subprocess
 import threading
+import asyncio
+import sys
+
+# Import Claude SDK executor
+try:
+    from claude_sdk_executor import ClaudeSDKExecutor
+    CLAUDE_SDK_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Claude SDK not available: {e}")
+    print("Install with: pip install anthropic")
+    CLAUDE_SDK_AVAILABLE = False
 
 class ClaudeTaskManager:
     def __init__(self):
@@ -25,6 +36,18 @@ class ClaudeTaskManager:
         self.config_file = self.config_dir / 'config.json'
         
         self.load_config()
+        
+        # Initialize Claude SDK executor if available
+        self.claude_executor = None
+        if CLAUDE_SDK_AVAILABLE:
+            try:
+                self.claude_executor = ClaudeSDKExecutor()
+                self._log("✅ Claude SDK initialized successfully")
+            except Exception as e:
+                self._log(f"❌ Failed to initialize Claude SDK: {e}")
+                self._log("💡 Make sure CLAUDE_API_KEY environment variable is set")
+        else:
+            self._log("⚠️  Claude SDK not available - autonomous execution disabled")
         
     def load_config(self):
         """Load configuration from file or create defaults"""
@@ -185,12 +208,73 @@ class ClaudeTaskManager:
         return True
     
     def run_autonomous_mode(self, interval=None):
-        """Run in autonomous mode, executing tasks automatically"""
+        """Run in autonomous mode, executing tasks automatically with Claude SDK"""
         if interval is None:
             interval = self.config['task_check_interval']
             
         self._log("🤖 Starting Claude-Tasker autonomous mode...")
+        
+        if self.claude_executor is None:
+            self._log("❌ Claude SDK not available - falling back to legacy mode")
+            return self._run_legacy_autonomous_mode(interval)
+        
+        self._log("🚀 Using Claude SDK for true autonomous execution")
         self._log(f"📊 Checking for tasks every {interval} seconds")
+        
+        try:
+            # Run the async autonomous loop
+            asyncio.run(self._async_autonomous_loop(interval))
+        except KeyboardInterrupt:
+            self._log("\n🛑 Autonomous mode stopped by user")
+        except Exception as e:
+            self._log(f"❌ Error in autonomous mode: {e}")
+    
+    async def _async_autonomous_loop(self, interval):
+        """Async loop for autonomous task execution"""
+        while True:
+            task = self.get_next_task()
+            
+            if task:
+                self._log(f"\n⚡ Found task: {task['task']} (Priority: {task['priority']})")
+                
+                # Update status to in-progress
+                self.update_task_status(task['id'], 'in_progress', 
+                                      started_at=datetime.now().isoformat())
+                
+                # Execute with Claude SDK
+                try:
+                    result = await self.claude_executor.execute_task_autonomously(task)
+                    
+                    if result['success']:
+                        # Mark as completed
+                        self.update_task_status(task['id'], 'completed',
+                                              completed_at=datetime.now().isoformat(),
+                                              execution_result=result,
+                                              actions_executed=result.get('actions_executed', 0))
+                        
+                        self._log(f"✅ Task completed: {task['task']}")
+                        self._log(f"📊 Actions executed: {result.get('actions_executed', 0)}")
+                    else:
+                        # Mark as failed
+                        self.update_task_status(task['id'], 'failed',
+                                              error=result.get('error', 'Unknown error'),
+                                              failed_at=datetime.now().isoformat())
+                        self._log(f"❌ Task failed: {task['task']} - {result.get('error', 'Unknown error')}")
+                        
+                except Exception as e:
+                    self.update_task_status(task['id'], 'failed',
+                                          error=f"SDK execution error: {str(e)}",
+                                          failed_at=datetime.now().isoformat())
+                    self._log(f"❌ SDK execution error: {e}")
+            else:
+                # No tasks - show a dot to indicate we're still running
+                print(".", end="", flush=True)
+            
+            await asyncio.sleep(interval)
+    
+    def _run_legacy_autonomous_mode(self, interval):
+        """Legacy autonomous mode without Claude SDK (fallback)"""
+        self._log(f"📊 Checking for tasks every {interval} seconds (legacy mode)")
         
         try:
             while True:
@@ -203,10 +287,9 @@ class ClaudeTaskManager:
                     self.update_task_status(task['id'], 'in_progress', 
                                           started_at=datetime.now().isoformat())
                     
-                    # Trigger Claude execution
+                    # Trigger Claude execution (legacy file-based method)
                     if self.trigger_claude_execution(task):
-                        # In a real implementation, we'd wait for actual completion
-                        # For now, simulate execution time based on task complexity
+                        # Simulate execution time based on task complexity
                         execution_time = self._estimate_execution_time(task)
                         
                         self._log(f"⏳ Estimated execution time: {execution_time} seconds")
@@ -228,9 +311,9 @@ class ClaudeTaskManager:
                 time.sleep(interval)
                 
         except KeyboardInterrupt:
-            self._log("\n🛑 Autonomous mode stopped by user")
+            self._log("\n🛑 Legacy autonomous mode stopped by user")
         except Exception as e:
-            self._log(f"❌ Error in autonomous mode: {e}")
+            self._log(f"❌ Error in legacy autonomous mode: {e}")
     
     def get_status(self):
         """Get system status"""

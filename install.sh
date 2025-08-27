@@ -110,6 +110,52 @@ install_dependencies() {
     print_color $GREEN "✓ Dependencies installed"
 }
 
+setup_claude_sdk() {
+    print_color $BLUE "🔑 Setting up Claude SDK..."
+    
+    # Install Python SDK
+    print_color $BLUE "📦 Installing anthropic Python package..."
+    pip3 install --user anthropic
+    
+    # Prompt for API key
+    echo ""
+    print_color $YELLOW "🔐 Claude API Key Setup Required"
+    echo "1. Go to: https://console.anthropic.com/"
+    echo "2. Create account and generate API key"  
+    echo "3. Enter your API key below:"
+    echo ""
+    
+    # Check if API key already exists
+    if [ -f "$HOME/.claude-tasker/.env" ] && grep -q "CLAUDE_API_KEY" "$HOME/.claude-tasker/.env"; then
+        print_color $GREEN "✓ Claude API key already configured"
+        return
+    fi
+    
+    read -p "Enter Claude API Key (starts with sk-ant-): " API_KEY
+    
+    if [[ $API_KEY == sk-ant-* ]]; then
+        # Create .env file
+        mkdir -p "$HOME/.claude-tasker"
+        cat >> "$HOME/.claude-tasker/.env" << EOF
+# Claude SDK Configuration
+CLAUDE_API_KEY=$API_KEY
+CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MAX_TOKENS=4000
+CLAUDE_TEMPERATURE=0.7
+EOF
+        
+        # Set secure permissions
+        chmod 600 "$HOME/.claude-tasker/.env"
+        
+        print_color $GREEN "✓ Claude API key configured"
+        print_color $BLUE "💡 API key stored in ~/.claude-tasker/.env"
+    else
+        print_color $RED "❌ Invalid API key format"
+        print_color $YELLOW "API keys should start with 'sk-ant-'"
+        print_color $YELLOW "You can configure it later by editing ~/.claude-tasker/.env"
+    fi
+}
+
 setup_configuration() {
     print_color $BLUE "⚙️ Setting up configuration..."
     
@@ -243,6 +289,7 @@ main() {
     check_prerequisites
     install_claude_tasker
     install_dependencies
+    setup_claude_sdk
     setup_configuration
     setup_claude_integration
     create_shortcuts

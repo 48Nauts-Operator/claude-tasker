@@ -1,5 +1,8 @@
 # Claude-Tasker Dependencies
 
+# Claude SDK (CRITICAL for autonomous execution)
+anthropic>=0.7.0
+
 # Web Server
 flask==3.0.0
 flask-cors==4.0.0
