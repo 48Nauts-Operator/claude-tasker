@@ -3,11 +3,25 @@
 
 echo "🎯 Starting Claude-Tasker..."
 
+# Get the current directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Add current directory to Python path
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
 # Check if Claude SDK is set up
 if [ ! -f "$HOME/.claude-tasker/.env" ]; then
     echo "⚠️  Claude SDK not configured. Run ./quick-setup.sh first"
     exit 1
 fi
+
+# Install dependencies if needed
+echo "📦 Checking dependencies..."
+python3 -c "import anthropic, flask, flask_cors, flask_socketio" 2>/dev/null || {
+    echo "Installing missing dependencies..."
+    pip3 install --user anthropic flask flask-cors flask-socketio python-dotenv
+}
 
 # Start web server in background
 echo "🌐 Starting web interface..."
@@ -28,6 +42,9 @@ cleanup() {
 
 # Set trap for cleanup
 trap cleanup SIGINT SIGTERM
+
+# Give web server time to start
+sleep 2
 
 # Start autonomous task execution (this will block)
 python3 task-manager.py autonomous
